@@ -14,7 +14,12 @@ enum ReaderTool: Int, CaseIterable {
 }
 
 @MainActor final class EditorPDFView: PDFView, @preconcurrency PDFPageOverlayViewProvider {
-    var tool: ReaderTool = .read { didSet { currentSelection = nil; refreshOverlay() } }
+    var tool: ReaderTool = .read {
+        didSet {
+            gesturePage = nil; points = []; dragStart = nil
+            currentSelection = nil; refreshOverlay()
+        }
+    }
     var targets: [EditTarget] = [] { didSet { refreshOverlay() } }
     var targetPage: PDFPage?
     var contentClick: ((PDFPage, NSPoint) -> Void)?
