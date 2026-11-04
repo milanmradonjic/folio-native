@@ -6,6 +6,8 @@ A macOS PDF reader and editor, forked from [Forward-Future/folio](https://github
 
 ## Features
 
+- **Delete Object:** select the tool and click existing text, an image, vector shape, shading or whole artwork group. Overlapping objects have a chooser; click empty space to list all page objects. Annotations can also be deleted. Deletion supports undo and is not secure redaction.
+- Hold **⌘** while scrolling over the PDF to zoom in/out. Scrolling without ⌘ remains ordinary scrolling.
 - Native document windows and macOS window tabs; PDF thumbnails and outline navigation.
 - Text selection/copying, find next/previous, page navigation, zoom, two-page view and printing.
 - **Edit existing text:** choose **Edit Content**, click an outlined text run, and replace it or clear the field to delete it. Consecutive compatible glyph runs are grouped into one editable line. Edits change PDF objects, rather than covering the old text.

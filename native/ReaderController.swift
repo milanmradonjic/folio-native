@@ -27,7 +27,10 @@ import UniformTypeIdentifiers
                                           NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation {
     unowned let file: PDFFile
     let pdfView = EditorPDFView()
-    private let split = NSSplitView()
+    private let splitController = NSSplitViewController()
+    private var split: NSSplitView { splitController.splitView }
+    private var sidebarItem: NSSplitViewItem!
+    private var minimumSidebarWidth: CGFloat = 250
     private let sidebar = NSView()
     private let thumbnails = PDFThumbnailView()
     private let outline = NSOutlineView()
@@ -44,14 +47,17 @@ import UniformTypeIdentifiers
     private var sidebarMode: NSSegmentedControl!
     private var noteEntries: [(Int, PDFAnnotation)] = []
     private var busy = false
-    private var positionedSidebar = false
     private var editGeneration = UUID()
     private var observers: [NSObjectProtocol] = []
+    private var scrollMonitor: Any?
     private let editorQueue = DispatchQueue(label: "local.folio.native.editor", qos: .userInitiated)
 
     init(file: PDFFile) { self.file = file; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+    }
 
     private func button(_ title: String, _ symbol: String, _ action: Selector) -> NSButton {
         let control = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title)!, target: self, action: action)
@@ -100,14 +106,27 @@ import UniformTypeIdentifiers
         status.lineBreakMode = .byTruncatingTail; status.textColor = .secondaryLabelColor
         editBar.addArrangedSubview(status)
         root.addArrangedSubview(editBar)
-        split.isVertical = true; split.dividerStyle = .thin
-        split.addArrangedSubview(sidebar); split.addArrangedSubview(pdfView)
-        split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-        sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 170).isActive = true
-        split.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
-        root.addArrangedSubview(split)
-        [navigation, editBar, split].forEach { $0.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true }
         configureSidebar()
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+        pdfView.translatesAutoresizingMaskIntoConstraints = false
+        let sidebarController = NSViewController(); sidebarController.view = sidebar
+        let documentController = NSViewController(); documentController.view = pdfView
+        sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
+        sidebarItem.minimumThickness = minimumSidebarWidth
+        sidebarItem.maximumThickness = 500
+        sidebarItem.canCollapse = true
+        // Interactive divider dragging has priority 490; a higher hold locks it in place.
+        sidebarItem.holdingPriority = .defaultLow
+        let documentItem = NSSplitViewItem(viewController: documentController)
+        documentItem.minimumThickness = 360
+        addChild(splitController)
+        splitController.addSplitViewItem(sidebarItem)
+        splitController.addSplitViewItem(documentItem)
+        let splitContainer = splitController.view
+        split.isVertical = true; split.dividerStyle = .thin
+        splitContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
+        root.addArrangedSubview(splitContainer)
+        [navigation, editBar, splitContainer].forEach { $0.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true }
         pdfView.delegate = self; pdfView.autoScales = true; pdfView.minScaleFactor = 0.1; pdfView.maxScaleFactor = 10
         pdfView.displayMode = .singlePageContinuous; pdfView.backgroundColor = .windowBackgroundColor
         pdfView.openExternal = { [weak self] url in self?.confirmExternal(url) }
@@ -118,15 +137,20 @@ import UniformTypeIdentifiers
         observers.append(NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: pdfView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.pageChanged() }
         })
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, event.modifierFlags.contains(.command), event.window === self.view.window else { return event }
+            let point = self.pdfView.convert(event.locationInWindow, from: nil)
+            guard self.pdfView.bounds.contains(point) else { return event }
+            self.pdfView.zoomByScroll(delta: event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 0.002 : 0.08))
+            return nil
+        }
         reloadDocument()
-    }
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        if !positionedSidebar && split.bounds.width > 500 { positionedSidebar = true; split.setPosition(215, ofDividerAt: 0) }
     }
     private func configureSidebar() {
         sidebarMode = NSSegmentedControl(labels: ["Pages", "Outline", "Notes"], trackingMode: .selectOne, target: self, action: #selector(changeSidebar(_:)))
         sidebarMode.selectedSegment = 0
+        sidebarMode.setContentCompressionResistancePriority(.required, for: .horizontal)
+        minimumSidebarWidth = max(250, sidebarMode.fittingSize.width + 14)
         let layout = NSStackView(views: [sidebarMode, sidebarPages]); layout.orientation = .vertical; layout.spacing = 8
         layout.distribution = .fill
         sidebarMode.heightAnchor.constraint(equalToConstant: 24).isActive = true
@@ -175,7 +199,7 @@ import UniformTypeIdentifiers
     private func pageChanged() {
         pageField.stringValue = file.pdf.isLocked ? "—" : String(currentIndex + 1)
         pageCount.stringValue = "of \(file.pdf.pageCount)"
-        if pdfView.tool == .edit && !busy { inspectPage() }
+        if (pdfView.tool == .edit || pdfView.tool == .deleteObject) && !busy { inspectPage() }
     }
     private func report(_ error: Error) { NSAlert(error: error).runModal() }
     private func performMutation(_ name: String, _ mutation: (PDFDocument) throws -> Void) {
@@ -218,7 +242,27 @@ import UniformTypeIdentifiers
         guard let input = askText("Go to Page", value: String(currentIndex + 1)), let number = Int(input), let page = file.pdf.page(at: number - 1) else { return }
         pdfView.go(to: page)
     }
-    @objc func toggleSidebar(_ sender: Any?) { sidebar.isHidden.toggle(); split.adjustSubviews(); if !sidebar.isHidden { split.setPosition(215, ofDividerAt: 0) } }
+    @objc func toggleSidebar(_ sender: Any?) { sidebarItem.isCollapsed.toggle() }
+
+    func checkSidebarResizing() throws {
+        view.layoutSubtreeIfNeeded()
+        let initial = sidebar.frame.width
+        guard initial >= minimumSidebarWidth - 1,
+              sidebarMode.frame.width >= sidebarMode.fittingSize.width - 1 else {
+            throw FolioError("Sidebar clips its navigation labels (width \(initial), minimum \(minimumSidebarWidth), control \(sidebarMode.frame.width), fitting \(sidebarMode.fittingSize.width))")
+        }
+        split.setPosition(initial + 90, ofDividerAt: 0)
+        view.layoutSubtreeIfNeeded()
+        guard sidebar.frame.width > initial + 60 else { throw FolioError("Sidebar divider cannot expand") }
+        split.setPosition(minimumSidebarWidth, ofDividerAt: 0)
+        view.layoutSubtreeIfNeeded()
+        guard abs(sidebar.frame.width - minimumSidebarWidth) < 2 else { throw FolioError("Sidebar divider cannot shrink") }
+        sidebarItem.isCollapsed = true
+        view.layoutSubtreeIfNeeded()
+        sidebarItem.isCollapsed = false
+        view.layoutSubtreeIfNeeded()
+        guard sidebarMode.frame.width >= sidebarMode.fittingSize.width - 1 else { throw FolioError("Restored sidebar clips its labels") }
+    }
     @objc private func changeSidebar(_ sender: Any?) {
         thumbnails.isHidden = sidebarMode.selectedSegment != 0; outlineScroll.isHidden = sidebarMode.selectedSegment != 1; notesScroll.isHidden = sidebarMode.selectedSegment != 2
     }
@@ -236,10 +280,11 @@ import UniformTypeIdentifiers
         guard !busy || tool == .read else { return }
         if tool != .read { do { try file.ensureEditable() } catch { tools.selectItem(at: 0); report(error); return } }
         pdfView.tool = tool; tools.selectItem(at: tool.rawValue)
-        status.stringValue = tool == .read ? "" : tool == .edit ? "Click outlined text or an image to edit it." : "Drag on the page to place \(tool.title.lowercased())."
-        if tool == .edit { inspectPage() } else { editGeneration = UUID(); pdfView.targets = [] }
+        status.stringValue = tool == .deleteObject ? "Click an object to delete. Click empty space to list all page objects." : tool == .read ? "" : tool == .edit ? "Click outlined text or an image to edit it." : "Drag on the page to place \(tool.title.lowercased())."
+        if tool == .edit || tool == .deleteObject { inspectPage() } else { editGeneration = UUID(); pdfView.targets = [] }
     }
     @objc func editContent(_ sender: Any?) { setTool(pdfView.tool == .edit ? .read : .edit) }
+    @objc func deleteObject(_ sender: Any?) { setTool(.deleteObject) }
     @objc func addTextBox(_ sender: Any?) { setTool(.text) }
     @objc func drawInk(_ sender: Any?) { setTool(.ink) }
     @objc func addImage(_ sender: Any?) { setTool(.image) }
@@ -259,7 +304,7 @@ import UniformTypeIdentifiers
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.setBusy(false)
-                    guard self.editGeneration == generation, self.file.revision == revision, self.pdfView.tool == .edit else { return }
+                    guard self.editGeneration == generation, self.file.revision == revision, (self.pdfView.tool == .edit || self.pdfView.tool == .deleteObject) else { return }
                     if self.currentIndex != index { self.inspectPage(); return }
                     switch result {
                     case .success(let response): self.pdfView.targets = response.0.targets ?? []
@@ -271,13 +316,40 @@ import UniformTypeIdentifiers
     }
     private func clickedContent(_ page: PDFPage, point: NSPoint) {
         guard !busy, page === pdfView.targetPage else { return }
-        let hit = pdfView.targets.filter { $0.bounds.insetBy(dx: -2, dy: -2).contains(point) }
+        if pdfView.tool == .deleteObject { chooseObjectToDelete(page, point: point); return }
+        let hit = pdfView.targets.filter { $0.kind != "object" && $0.bounds.insetBy(dx: -2, dy: -2).contains(point) }
             .sorted { ($0.kind == "text" ? 0 : 1, $0.bounds.width * $0.bounds.height) < ($1.kind == "text" ? 0 : 1, $1.bounds.width * $1.bounds.height) }.first
         guard let target = hit else { status.stringValue = "No editable text or image here. Scans and grouped artwork are not text objects."; return }
         if target.kind == "text" {
             guard let text = askText("Edit Existing Text", value: target.text, detail: "Keeps the original font and position. Longer text can overlap nearby content. Clear the field to delete this text.") else { return }
             contentOperation("text", page: page, index: target.index, text: text, name: "Edit Text")
         } else if let image = chooseImage() { contentOperation("image", page: page, index: target.index, image: image, name: "Replace Image") }
+    }
+    private func chooseObjectToDelete(_ page: PDFPage, point: NSPoint) {
+        let hits = pdfView.targets.filter { $0.bounds.insetBy(dx: -3, dy: -3).contains(point) }
+            .sorted { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
+        let candidates = hits.isEmpty ? pdfView.targets : hits
+        let annotations = page.annotations.filter { $0.bounds.contains(point) }
+        guard !candidates.isEmpty || !annotations.isEmpty else { status.stringValue = "This page has no deletable objects."; return }
+        let alert = NSAlert(); alert.messageText = "Delete existing object?"
+        alert.informativeText = "Choose the object. Grouped artwork is deleted as a whole. Undo restores the deletion."
+        alert.addButton(withTitle: "Delete"); alert.addButton(withTitle: "Cancel")
+        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 440, height: 28))
+        for candidate in candidates { picker.addItem(withTitle: "\(candidate.kind.capitalized) #\(candidate.index + 1): \(candidate.text.prefix(65))") }
+        for annotation in annotations { picker.addItem(withTitle: "Annotation: \(annotation.type ?? "Note")") }
+        alert.accessoryView = picker
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let selection = picker.indexOfSelectedItem
+        if selection < candidates.count {
+            contentOperation("delete", page: page, index: candidates[selection].index, name: "Delete Object")
+        } else {
+            let annotation = annotations[selection - candidates.count]
+            guard let index = page.annotations.firstIndex(where: { $0 === annotation }) else { return }
+            let pageIndex = file.pdf.index(for: page)
+            performMutation("Delete Annotation") { document in
+                if let target = document.page(at: pageIndex) { target.removeAnnotation(target.annotations[index]) }
+            }
+        }
     }
     private func chooseImage() -> Data? {
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.png, .jpeg]; panel.allowsMultipleSelection = false
@@ -301,7 +373,7 @@ import UniformTypeIdentifiers
                         let response = try result.get()
                         try self.file.replaceContents(response.1, name: name, expectedRevision: revision)
                         self.status.stringValue = "\(name) applied. Save to keep your changes."
-                    } catch { self.report(error); if self.pdfView.tool == .edit { self.inspectPage() } }
+                    } catch { self.report(error); if self.pdfView.tool == .edit || self.pdfView.tool == .deleteObject { self.inspectPage() } }
                 }
             }
         } catch { report(error) }
@@ -458,7 +530,7 @@ import UniformTypeIdentifiers
         performMutation("Delete Annotation") { document in if let page = document.page(at: pageIndex) { page.removeAnnotation(page.annotations[index]) } }
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let editActions: Set<Selector> = [#selector(editContent(_:)), #selector(highlight(_:)), #selector(addNote(_:)), #selector(addTextBox(_:)),
+        let editActions: Set<Selector> = [#selector(deleteObject(_:)), #selector(editContent(_:)), #selector(highlight(_:)), #selector(addNote(_:)), #selector(addTextBox(_:)),
             #selector(drawInk(_:)), #selector(addImage(_:)), #selector(rotatePage(_:)), #selector(movePage(_:)), #selector(deletePage(_:)), #selector(insertPDF(_:))]
         guard let action = menuItem.action else { return false }
         return !editActions.contains(action) || (!busy && !file.pdf.isEncrypted && !file.signed && !file.pdf.isLocked)

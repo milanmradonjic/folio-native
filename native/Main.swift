@@ -42,6 +42,7 @@ import PDFKit
         menuItem("Find Next", #selector(ReaderController.findNext(_:)), "g"),
         menuItem("Find Previous", #selector(ReaderController.findPrevious(_:)), "g", modifiers: [.command, .shift]), .separator(),
         menuItem("Edit Existing Text / Images", #selector(ReaderController.editContent(_:)), "e", modifiers: [.command, .shift]),
+        menuItem("Delete Existing Object…", #selector(ReaderController.deleteObject(_:))),
         menuItem("Highlight Selection", #selector(ReaderController.highlight(_:)), "h", modifiers: [.command, .shift]),
         menuItem("Add Note…", #selector(ReaderController.addNote(_:)), "n", modifiers: [.command, .shift]),
         menuItem("Add Text Box", #selector(ReaderController.addTextBox(_:))),

@@ -89,9 +89,16 @@ static NSArray *targetsForPage(FPDF_PAGE page) {
             FPDF_PAGEOBJECT object = FPDFPage_GetObject(page, i);
             int type = FPDFPageObj_GetType(object);
             float l, b, r, t;
-            if ((type != FPDF_PAGEOBJ_TEXT && type != FPDF_PAGEOBJ_IMAGE) ||
-                !FPDFPageObj_GetBounds(object, &l, &b, &r, &t) ||
-                !std::isfinite(l) || !std::isfinite(b) || !std::isfinite(r) || !std::isfinite(t) || r <= l || t <= b) {
+            if (!FPDFPageObj_GetBounds(object, &l, &b, &r, &t) ||
+                !std::isfinite(l) || !std::isfinite(b) || !std::isfinite(r) || !std::isfinite(t) || r < l || t < b) {
+                [targets addObject:@{@"index": @(i), @"end": @(i), @"kind": @"object", @"text": @"Page object (no visible bounds)", @"box": @[@0, @0, @0.5, @0.5]}];
+                previous = nullptr; last = nil; continue;
+            }
+            if (r == l) r = l + 0.5f;
+            if (t == b) t = b + 0.5f;
+            if (type != FPDF_PAGEOBJ_TEXT && type != FPDF_PAGEOBJ_IMAGE) {
+                NSString *label = type == FPDF_PAGEOBJ_FORM ? @"Grouped artwork" : type == FPDF_PAGEOBJ_PATH ? @"Vector path" : type == FPDF_PAGEOBJ_SHADING ? @"Shading" : @"Page object";
+                [targets addObject:@{@"index": @(i), @"end": @(i), @"kind": @"object", @"text": label, @"box": @[@(l), @(b), @(r), @(t)]}];
                 previous = nullptr; last = nil; continue;
             }
             if (type == FPDF_PAGEOBJ_IMAGE) {
@@ -99,7 +106,10 @@ static NSArray *targetsForPage(FPDF_PAGE page) {
                 previous = nullptr; last = nil; continue;
             }
             int mode = FPDFTextObj_GetTextRenderMode(object);
-            if (mode < 0 || mode > 2) { previous = nullptr; last = nil; continue; }
+            if (mode < 0 || mode > 2 || ![texts[[NSValue valueWithPointer:object]] length]) {
+                [targets addObject:@{@"index": @(i), @"end": @(i), @"kind": @"object", @"text": @"Text object", @"box": @[@(l), @(b), @(r), @(t)]}];
+                previous = nullptr; last = nil; continue;
+            }
             NSString *text = texts[[NSValue valueWithPointer:object]] ?: @"";
             if (!text.length) { previous = nullptr; last = nil; continue; }
             FS_MATRIX matrix{}; float size = 0;
@@ -298,7 +308,16 @@ static void processRequest(NSDictionary *request, NSData *pdf, NSData *image) {
             NSString *operation = request[@"operation"];
             NSArray *targets = targetsForPage(page);
             if ([operation isEqualToString:@"inspect"]) { reply(@{@"ok": @YES, @"bytes": @0, @"targets": targets}); return; }
-            if ([operation isEqualToString:@"insertImage"]) {
+            if ([operation isEqualToString:@"delete"]) {
+                NSDictionary *target = nil;
+                for (NSDictionary *candidate in targets) if ([candidate[@"index"] isEqual:request[@"index"]]) { target = candidate; break; }
+                require(target != nil, "Select this object again.");
+                for (int index = [target[@"end"] intValue]; index >= [target[@"index"] intValue]; --index) {
+                    FPDF_PAGEOBJECT object = FPDFPage_GetObject(page, index);
+                    require(FPDFPage_RemoveObject(page, object), "Couldn't delete the selected object.");
+                    FPDFPageObj_Destroy(object);
+                }
+            } else if ([operation isEqualToString:@"insertImage"]) {
                 NSArray *box = request[@"box"];
                 require([box isKindOfClass:NSArray.class] && box.count == 4, "Choose an image placement.");
                 for (NSNumber *value in box) require([value isKindOfClass:NSNumber.class] && std::isfinite(value.doubleValue), "Invalid image placement.");

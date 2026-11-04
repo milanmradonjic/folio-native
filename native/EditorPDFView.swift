@@ -2,8 +2,8 @@ import AppKit
 import PDFKit
 
 enum ReaderTool: Int, CaseIterable {
-    case read, edit, text, ink, rectangle, oval, arrow, image
-    var title: String { ["Read", "Edit Content", "Text Box", "Draw", "Rectangle", "Oval", "Arrow", "Image / Sign"][rawValue] }
+    case read, edit, text, ink, rectangle, oval, arrow, image, deleteObject
+    var title: String { ["Read", "Edit Content", "Text Box", "Draw", "Rectangle", "Oval", "Arrow", "Image / Sign", "Delete Object"][rawValue] }
 }
 
 @MainActor private final class PageEditOverlay: NSView {
@@ -54,9 +54,9 @@ enum ReaderTool: Int, CaseIterable {
     fileprivate func drawOverlay(page: PDFPage, in overlay: NSView) {
         func rectangle(_ rect: NSRect) -> NSRect { overlay.convert(convert(rect, from: page), from: self) }
         func point(_ point: NSPoint) -> NSPoint { overlay.convert(convert(point, from: page), from: self) }
-        if tool == .edit && page === targetPage {
-            for target in targets {
-                let color: NSColor = target.kind == "text" ? .systemBlue : .systemOrange
+        if (tool == .edit || tool == .deleteObject) && page === targetPage {
+            for target in targets where tool == .deleteObject || target.kind != "object" {
+                let color: NSColor = tool == .deleteObject ? .systemRed : target.kind == "text" ? .systemBlue : .systemOrange
                 let path = NSBezierPath(rect: rectangle(target.bounds).insetBy(dx: -2, dy: -2))
                 color.withAlphaComponent(0.055).setFill(); path.fill()
                 color.withAlphaComponent(0.8).setStroke(); path.lineWidth = 1; path.stroke()
@@ -87,7 +87,7 @@ enum ReaderTool: Int, CaseIterable {
         }
         guard let page = page(for: location, nearest: false) else { return }
         let point = convert(location, to: page)
-        if tool == .edit { contentClick?(page, point); return }
+        if tool == .edit || tool == .deleteObject { contentClick?(page, point); return }
         gesturePage = page; dragStart = point; points = [point]
         refreshOverlay()
     }
@@ -114,6 +114,11 @@ enum ReaderTool: Int, CaseIterable {
         // Keep keyboard focus navigation out of PDFKit's untracked form editor.
         if event.keyCode == 48 { window?.selectNextKeyView(self); return }
         super.keyDown(with: event)
+    }
+    func zoomByScroll(delta: CGFloat) {
+        guard delta.isFinite else { return }
+        autoScales = false
+        scaleFactor = min(maxScaleFactor, max(minScaleFactor, scaleFactor * exp(min(4, max(-4, delta)))))
     }
     // Only in-document navigation runs automatically. External actions require a native confirmation.
     override func perform(_ action: PDFAction) {

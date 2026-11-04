@@ -7,9 +7,9 @@ import Darwin
     private static func check(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw FolioError(message) }
     }
-    static func fixture(signed: Bool = false, clipped: Bool = false) -> Data {
+    static func fixture(signed: Bool = false, clipped: Bool = false, artwork: Bool = false) -> Data {
         func stream(_ contents: String) -> String { "<< /Length \(contents.utf8.count) >>\nstream\n\(contents)\nendstream" }
-        let resources = "<< /Font << /F1 6 0 R >> /XObject << /Im0 5 0 R >> >>"
+        let resources = "<< /Font << /F1 6 0 R >> /XObject << /Im0 5 0 R \(artwork ? "/Fm 9 0 R" : "") >> >>"
         var objects = [
             "<< /Type /Catalog /Pages 2 0 R \(signed ? "/AcroForm << /Fields [9 0 R] >>" : "") >>",
             "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
@@ -17,9 +17,13 @@ import Darwin
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources \(resources) /Contents 8 0 R >>",
             "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 7 >>\nstream\nFF0000>\nendstream",
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-            stream("BT /F1 20 Tf 1 0 0 1 40 240 Tm (Hello ) Tj 1 0 0 1 91.12 240 Tm (world) Tj ET q \(clipped ? "40 120 30 60 re W n " : "")60 0 0 60 40 120 cm /Im0 Do Q q 60 0 0 60 140 120 cm /Im0 Do Q"),
+            stream("BT /F1 20 Tf 1 0 0 1 40 240 Tm (Hello ) Tj 1 0 0 1 91.12 240 Tm (world) Tj ET q \(clipped ? "40 120 30 60 re W n " : "")60 0 0 60 40 120 cm /Im0 Do Q q 60 0 0 60 140 120 cm /Im0 Do Q \(artwork ? "q 0 0 1 rg 200 30 30 30 re f Q q 1 0 0 1 20 30 cm /Fm Do Q" : "")"),
             stream("BT /F1 16 Tf 1 0 0 1 40 240 Tm (Second page) Tj ET q 60 0 0 60 40 120 cm /Im0 Do Q")
         ]
+        if artwork {
+            let drawing = "0 1 0 rg 0 0 15 15 re f"
+            objects.append("<< /Type /XObject /Subtype /Form /BBox [0 0 15 15] /Resources << >> /Length \(drawing.utf8.count) >>\nstream\n\(drawing)\nendstream")
+        }
         if signed {
             objects += ["<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature) /P 3 0 R /Rect [0 0 0 0] /V 10 0 R >>",
                         "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange [0 1 2 1] /Contents <010203> >>"]
@@ -83,6 +87,21 @@ import Darwin
         } catch let error as FolioError { if error.message == "Multiline replacement must be rejected" { throw error } }
         let images = targets.filter { $0.kind == "image" }
         try check(images.count == 2, "Fixture must have two placements of one shared image")
+        let deletedText = try EditorProcess.run(pdf: source, page: 0, operation: "delete", index: text.index).1
+        try check(PDFDocument(data: deletedText)?.page(at: 0)?.string?.contains("Hello") != true, "Object deletion must remove the complete selected text run")
+        let deletedImage = try EditorProcess.run(pdf: source, page: 0, operation: "delete", index: images[0].index).1
+        let remaining = try EditorProcess.run(pdf: deletedImage, page: 0, operation: "inspect").0.targets!
+        try check(remaining.filter { $0.kind == "image" }.count == 1, "Delete only the selected image placement")
+        let pageTwo = try EditorProcess.run(pdf: deletedImage, page: 1, operation: "inspect").0.targets!
+        try check(pageTwo.filter { $0.kind == "image" }.count == 1, "Deleting a shared image must preserve other pages")
+        let drawing = fixture(artwork: true)
+        let drawingTargets = try EditorProcess.run(pdf: drawing, page: 0, operation: "inspect").0.targets!
+        for label in ["Vector path", "Grouped artwork"] {
+            guard let item = drawingTargets.first(where: { $0.text == label }) else { throw FolioError("Artwork must be selectable for deletion") }
+            let deleted = try EditorProcess.run(pdf: drawing, page: 0, operation: "delete", index: item.index).1
+            let after = try EditorProcess.run(pdf: deleted, page: 0, operation: "inspect").0.targets!
+            try check(after.count == drawingTargets.count - 1 && !after.contains { $0.text == label }, "Delete the chosen vector/group object and preserve its neighbors")
+        }
         let replaced = try EditorProcess.run(pdf: source, page: 0, operation: "image", index: images[0].index, image: blueImage()).1
         let imagePDF = try DocumentPolicy.parse(replaced)
         let first = sample(imagePDF.page(at: 0)!, x: 70, y: 150)
@@ -133,8 +152,21 @@ import Darwin
         catch let error as FolioError { if error.message == "Encrypted PDF must be rejected by editor" { throw error } }
         // Construct and lay out the reader offscreen; do not order a window onto the desktop.
         let window = ReaderWindowController(file: file)
-        file.addWindowController(window); window.window!.contentView!.layoutSubtreeIfNeeded()
+        file.addWindowController(window)
+        window.window!.setFrameOrigin(NSPoint(x: -16000, y: -16000))
+        window.window!.orderBack(nil)
+        for _ in 0..<3 { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
+        window.window!.contentView!.layoutSubtreeIfNeeded()
         try check(window.reader.pdfView.document === file.pdf, "Reader window must show the document model")
+        try window.reader.checkSidebarResizing()
+        let zoom = window.reader.pdfView
+        zoom.autoScales = false; zoom.scaleFactor = 1
+        zoom.zoomByScroll(delta: 0.2)
+        try check(zoom.scaleFactor > 1, "Command-scroll up must zoom in")
+        zoom.zoomByScroll(delta: -0.4)
+        try check(zoom.scaleFactor < 1, "Command-scroll down must zoom out")
+        for _ in 0..<8 { zoom.zoomByScroll(delta: 4) }
+        try check(zoom.scaleFactor <= zoom.maxScaleFactor, "Scroll zoom must respect maximum scale")
         let splits = window.window!.contentView!.subviews.flatMap { $0.subviews }.compactMap { $0 as? NSSplitView }
         try check(splits.allSatisfy { !$0.hasAmbiguousLayout }, "Reader split view must have an unambiguous layout")
         window.window!.close(); file.removeWindowController(window)
