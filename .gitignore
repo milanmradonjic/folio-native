@@ -1,8 +1,3 @@
-node_modules
-dist
-public/pdfjs
-public/ocr
-release
-release-test
-release-*/
-dev-app-update.yml
+.build/
+vendor/
+.DS_Store

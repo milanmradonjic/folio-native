@@ -1,314 +1,52 @@
-# Folio
+# Folio Native
 
-A fast, clean PDF reader for Windows, macOS, and Linux. Read, highlight, annotate, sign, and ask AI about your
-documents. Free and open source, with no Folio account required.
+A macOS PDF reader and editor, forked from [Forward-Future/folio](https://github.com/Forward-Future/folio) v1.15.1 (`a2e43c7`). The original web interface has been replaced with AppKit and PDFKit. Existing page text and images are edited by a separate native PDFium helper.
 
-![Folio with the Ask AI panel open, answering a question about the document with page citations](docs/screenshots/ask-ai.png)
-
-| Highlights and notes | Search |
-| --- | --- |
-| ![Color highlights in a document, with their notes in the sidebar](docs/screenshots/highlights-and-notes.png) | ![Searching a document in the dark theme, with every match highlighted and a list of matching pages](docs/screenshots/search.png) |
-
-## Download
-
-| Platform | Download | Updates |
-| --- | --- | --- |
-| **Windows** 10/11 (64-bit) | [Folio-Setup.exe](https://github.com/Forward-Future/folio-releases/releases/latest/download/Folio-Setup.exe) | Automatic |
-| **macOS** 12 or later (Apple Silicon and Intel) | [Folio-mac.dmg](https://github.com/Forward-Future/folio-releases/releases/latest/download/Folio-mac.dmg) | Folio tells you when a new version is out |
-| **Linux**: Ubuntu, Debian, and derivatives (64-bit) | [Folio-linux-amd64.deb](https://github.com/Forward-Future/folio-releases/releases/latest/download/Folio-linux-amd64.deb) | Automatic, with your system updates (apt) |
-| **Linux**: other distributions (64-bit) | [Folio-linux-x86_64.AppImage](https://github.com/Forward-Future/folio-releases/releases/latest/download/Folio-linux-x86_64.AppImage) | Automatic |
-
-[All releases](https://github.com/Forward-Future/folio-releases/releases) · [Changelog](CHANGELOG.md) · Prefer not to
-install on Windows? **Folio-Portable.exe** on the release page runs as-is (it doesn't auto-update).
-
-Folio's builds aren't signed with paid developer certificates yet, so the first launch needs one extra step:
-
-- **Windows:** if SmartScreen warns, choose **More info → Run anyway**.
-- **macOS:** open the DMG and drag Folio to Applications. The first time you open it, macOS says it can't verify the
-  developer: click **Done**, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
-- **Linux (.deb):** `sudo apt install ./Folio-linux-amd64.deb`, then open Folio from your applications menu. The
-  package adds Folio's signed apt repository, so new versions arrive with your regular system updates (or
-  `sudo apt update && sudo apt upgrade`). Copies installed from a .deb before 1.9 need the new .deb installed once.
-- **Linux (AppImage):** make it executable (`chmod +x Folio-linux-x86_64.AppImage`) and run it. AppImages need FUSE 2:
-  `sudo apt install libfuse2t64` on Ubuntu 24.04 or later, `libfuse2` on older releases.
-
-Or build Folio yourself from source (below).
+**macOS 13 or later. No Electron, Chromium browser, WebView, Node/npm, AI integration, Word conversion, URL imports, telemetry, or automatic updates.** Standalone PDFium is retained intentionally; it originates in the Chromium project, but this build disables V8 and XFA and contains no browser runtime.
 
 ## Features
 
-### Open PDFs and web links
+- Native document windows and macOS window tabs; PDF thumbnails and outline navigation.
+- Text selection/copying, find next/previous, page navigation, zoom, two-page view and printing.
+- **Edit existing text:** choose **Edit Content**, click an outlined text run, and replace it or clear the field to delete it. Consecutive compatible glyph runs are grouped into one editable line. Edits change PDF objects, rather than covering the old text.
+- **Replace embedded images:** in Edit Content, click an outlined image and choose a PNG or JPEG. Its placement is retained.
+- **Insert images and visual signatures:** choose **Image / Sign**, drag a rectangle, and select a PNG or JPEG. This is a visual image, not a cryptographic signature. Signature files are not remembered.
+- Highlights, notes, text boxes, pen drawings, rectangles, ovals and arrows. The Notes sidebar lists annotations; double-click an entry to edit its text, or use its context menu to delete it.
+- Text form fields open a native editing dialog with undo support. Other form control types are read-only in this version.
+- Rotate, move and delete pages; insert another PDF after the current page.
+- Undo/redo for edits; explicit Save and Save As. There is no separate annotation database or document-history cache.
+- Password-protected PDFs can be unlocked for reading. Encrypted PDFs and PDFs with signature fields remain read-only.
 
-- **Document tabs.** Pick or drop several PDFs together, or choose **More → New tab**. The tab strip appears beneath
-  the toolbar when two or more tabs are open. Each document keeps its page, zoom, and edits when you switch.
-- **PDF URLs:** choose **Open from URL** (`Ctrl+Shift+O`), or drop a link or paste it with `Ctrl+V` outside a text
-  field to fill it in, then press **Open**. Folio downloads and opens the PDF, follows redirects, and uses the server's
-  filename when available. Folio asks once more before opening an address on your computer or local network.
-- **Webpage to PDF:** use the same URL workflow for a webpage. Folio converts it into a PDF with selectable text,
-  ready for highlights, notes, and Ask AI. The conversion preserves the site's on-screen layout, backgrounds,
-  transparency, colors, and images instead of switching to its print styles.
-- **Word documents to PDF:** open a `.docx` or `.doc` file the same ways as a PDF (**Open with → Folio**, the file
-  picker, or drag and drop). Folio opens the PDF and saves a private copy beside the original when possible
-  ("Report.docx" gets "Report.pdf"). Occupied names get a number. Reopening reuses a copy only if both files still
-  match Folio's conversion record. Opening a symbolic link, or a file on a separate volume on macOS, skips the
-  automatic save. Folio converts with
-  Microsoft Word on Windows when it's installed, otherwise with LibreOffice, otherwise with its own converter for
-  `.docx` (text, headings, lists, tables, and images, in a simpler layout). `.doc` files need Word or LibreOffice,
-  except on macOS. Installing Folio adds it to **Open with** for Word documents without making it their default app.
-- **Password-protected PDFs:** enter the password to read and annotate a protected document. These documents are not
-  kept in the recent library, and their annotations and AI conversations are not persisted locally between sessions.
-- **Sample document:** try the built-in tour from the home screen without finding a PDF first.
+This is a new native implementation, **not full feature parity with upstream**. It does not include OCR, existing text reflow, arbitrary font substitution, image inspection tools, camera signature capture, persistent personal bookmarks, or the upstream version-history UI. PDFs do not behave like Word documents: longer replacement text can overlap nearby content, and subset fonts may reject characters they do not contain. Content inside grouped artwork, outlined lettering and scanned words is not exposed as editable text. Image replacement rejects existing placements with clipping, transparency or blend effects; inserting a new PNG with transparency is supported. This is not a secure-redaction tool.
 
-URL opening, webpage conversion, and Word conversion require the desktop app. Failed downloads leave your current document open.
+## Build
 
-### Read and navigate
-
-- **Continuous scrolling** with selectable text, previous/next controls, and a page-number field for jumping directly
-  to a page. Enable **Settings → Reading → Scroll one page at a time** to turn pages with the mouse wheel.
-- **Pages and Outline tabs:** browse page thumbnails or the PDF's existing outline/bookmarks; hide the sidebar when
-  you want more reading space.
-- **Personal bookmarks:** click the ribbon beside a page number in **Pages** to save or remove a bookmark without
-  leaving your current page. Turn on **Bookmarked** at the top of the sidebar to see just your saved pages,
-  then select a thumbnail to jump to it. These bookmarks are included in Markdown and JSON exports. Folio remembers them locally
-  when you reopen a PDF, except for password-protected documents.
-- **Reorder pages** from either sidebar tab. Drag thumbnails or enter a new position, then save and open the reordered PDF copy.
-- **Search as you type:** match case or whole words, see the current match and total count, browse per-page snippets
-  and match counts, and move between matches with `Enter` / `Shift+Enter`.
-- **Flexible views:** fit to width, fit to page, automatic sizing, preset zoom levels, zoom buttons, `Ctrl+wheel` /
-  trackpad pinch, two-page spreads, and page rotation.
-- **Focus mode:** press `F` for distraction-free, fullscreen reading; press `Esc` to return.
-- **Light and dark themes**, plus an independent **⋯ → PDF dark mode** setting that dims bright pages while keeping
-  photos and figures in their original colors, including in thumbnails. Both settings survive restarts.
-
-### Edit existing text and images
-
-Choose **Edit mode**, then click the text you want to change and type on the page. Press **Enter** or click outside the line to apply it. **Esc** cancels typing. Clear a line to delete it.
-
-Click an embedded picture and choose **Replace image…** to select a PNG or JPEG. You can leave Edit mode to read your changes or use **Save copy** to export and open the edited PDF.
-
-Open **More → Version history** to review your changes. Saving a changed copy keeps the original PDF and a numbered version on this device. Text edits show the old and new wording, and image replacements show the filename and page. Open or download an earlier version from the panel. History is available for unencrypted PDFs up to 50 MB and can be cleared per document.
-
-Text keeps its original font and position. Longer replacements can overlap neighboring content, so check the page after applying a change.
-Only characters available in that font can be used. Scanned words, outlined lettering, and objects inside grouped artwork
-cannot be edited as text. Image replacement supports embedded image objects on pages without inline image data.
-The editor works with unsigned, unencrypted PDFs.
-
-### Highlight, draw, and take notes
-
-- **Select text in scans.** Folio starts recognizing English text in the background when you open a PDF.
-  The page you jump to gets priority. A message above the page controls shows when text is still being prepared.
-  Once it clears, drag across the words to copy, highlight, or ask about a passage. Recognition runs offline.
-- **One-click highlights:** select text, then choose yellow, green, blue, pink, or red from the selection toolbar;
-  `H` applies the current highlight color.
-- Choose **Highlight** in the toolbar to mark each passage in the current color as soon as you select it.
-  Choose **Done** or press `Esc` to return to reading.
-- **Notes on passages:** type into the selection toolbar and press `Enter` to highlight with a note, or press `N`
-  with text selected to focus the note box.
-- **Edit existing highlights:** click one to recolor it, edit its note, ask AI about the passage, or remove it.
-- **Draw on a page:** choose **Draw** (`D`) for a freehand pen, rectangle, oval, or arrow. Pick a color, then drag
-  on the page. Shapes can be undone and are included when you save a PDF copy.
-- **Text boxes:** choose **Text** (`T`) to add text to a page, using the same ink palette.
-- **Undo and redo** annotation edits with the usual keyboard shortcuts; choose **Done**, `V`, or `Esc` to leave a
-  drawing/text tool and return to selection.
-- **Notes tab:** review highlights, their notes, and text boxes; click an entry to jump to it, edit a highlight's note,
-  delete an entry, or ask AI about a highlight. A separate notes box holds thoughts about the whole document.
-- **Export reading notes:** in **Notes → Export**, copy Markdown or save a JSON file. JSON includes your notes,
-  highlights, text boxes, drawings and shapes with one-based page numbers, plus the PDF's outline bookmarks.
-  It includes stable annotation IDs, colors, and coordinates in unrotated PDF user space for use in other tools.
-- **Automatic local saving:** highlights, notes, drawings, and text boxes return when you reopen an
-  ordinary, non-password-protected PDF. Use **Save a copy** to share page annotations with other readers.
-
-### Add handwritten signatures
-
-Choose **Sign** in the toolbar to add a signature.
-
-- **Capture on paper:** sign with dark ink on white paper, then use your camera or upload a PNG, JPEG, or WebP photo.
-- **Clean up the image:** crop to the signature and adjust ink sensitivity to remove the paper background. Capture
-  and image processing stay on your device.
-- **Suggested placement:** Folio checks the current page for empty PDF signature fields and likely signature labels,
-  then offers places to sign. Detection is a suggestion, not a guarantee that every field will be found.
-- **Preview and position:** review the actual page, pick a suggestion or place the signature manually, and adjust its
-  width before approving.
-- **Explicit approval:** nothing is added until you click **Approve and add signature**. Signatures are visual stamps,
-  not certificate-based digital signatures. Use **Save a copy** to keep a signed PDF; placed signatures are not part
-  of Folio's automatic annotation restoration.
-- **Optional reuse:** choose to remember a signature on this computer; remove the saved image in
-  **Settings → Signature → Forget**.
-
-### Ask AI about a document
-
-- **Bring your own subscription:** use **Sign in with ChatGPT** or your Claude subscription through
-  [Claude Code](https://claude.com/claude-code). No API key or separate Folio account is needed.
-- **Whole-document or passage questions:** open the Ask AI panel from the toolbar, select text and choose **Ask AI**,
-  or ask about an existing highlight.
-- **Streaming answers** with clickable page citations that jump back to the source page.
-- **Copy response** copies a finished AI answer with its Markdown formatting and page citations.
-- **Rendered mathematics:** inline and display LaTeX equations, with wide equations scrolling within the chat panel.
-  Supports `\( ... \)`, `\[ ... \]`, `$x$`, and `$$ ... $$`; existing saved answers render too.
-- **Provider and model selection**, a stop button for an in-progress answer, and a **+** button to start a fresh
-  conversation.
-- **Per-document history:** conversations are saved on this computer and restored when you reopen that document,
-  except for password-protected PDFs. Starting a new conversation clears that document's saved chat.
-- **Account settings:** choose your default provider, sign in to or out of ChatGPT, and check Claude Code's connection
-  from **Settings → Ask AI**.
-
-Ask AI is optional and desktop-only. See [Using Ask AI](#using-ask-ai) for setup and [Privacy](#privacy) for what is sent.
-
-### Inspect images
-
-- Click a PDF image and choose **View larger** for a high-resolution, full-window view.
-- Switch between **Fit to window** and **Actual size**, or copy the image to your clipboard.
-- Choose **Open in browser** when an image has a web address. Images in converted webpages retain their original
-  image links.
-
-### Pick up where you left off
-
-- **Recent library:** keep up to eight recently opened PDFs with thumbnail previews and the last page read; reopen
-  with one click, remove individual entries, or choose **Clear all**.
-- **Startup restore:** reopen the last active document automatically when it is still in the recent library.
-- **Reading state:** remember each document's page, scroll position, zoom, rotation, sidebar visibility, and two-page
-  mode.
-- **Window state:** restore the desktop window's size, monitor position, and maximized state.
-
-### Save, print, and inspect
-
-- **Save a copy** (`Ctrl+S`) exports a PDF with page annotations, including highlights and attached notes, drawings,
-  text boxes, and visual signatures. Your original file is not overwritten. Whole-document notes and AI chat history
-  stay in Folio; copy notes as Markdown when you want to share them.
-- **Print** (`Ctrl+P`) prints the current document with its page annotations.
-- **Document info** shows available metadata: filename, title, author, subject, page count and size, file size,
-  creation/modification dates, generating application, producer, and PDF version.
-
-### Settings and updates
-
-Open **⋯ → Settings** or press `Ctrl+,` for appearance, night reading, AI accounts and defaults, remembered signatures,
-and updates. **About Folio** shows the version, installed/portable edition, and installation location, with a shortcut
-to open that folder.
-
-- **Automatic updates on or off:** the preference survives restarts. Turning it off stops background checks/downloads
-  and automatic installation; manual **Check for updates** remains available for self-updating editions.
-- **Installed Windows:** updates download in the background and install silently on exit, or when you choose
-  **Restart and update**, without repeating the Setup wizard.
-- **Linux AppImage:** downloads updates and replaces the AppImage. **Linux .deb:** updates through the signed apt
-  repository and your system updater; Folio's toggle does not disable apt updates.
-- **macOS:** current unsigned builds notify you and offer the download; self-installing updates require a signed
-  build. **Windows portable:** download a replacement manually.
-- **Visible update status:** checking, download progress, update-ready prompts, and errors are shown in the app.
-
-### Keyboard shortcuts
-
-On macOS, use `⌘` wherever this table says `Ctrl`. Press `?` with a document open for in-app help.
-
-| Action | Shortcut |
-| --- | --- |
-| Open a PDF / open a URL | `Ctrl+O` / `Ctrl+Shift+O` |
-| New tab / close tab | `Ctrl+T` / `Ctrl+W` |
-| Next tab / previous tab (Control on all platforms) | `Control+Tab` / `Control+Shift+Tab` |
-| Find / next match / previous match | `Ctrl+F` / `Enter` / `Shift+Enter` |
-| Highlight selection or enter Highlight mode / write a note | `H` / `N` |
-| Remove a clicked highlight | `Delete` |
-| Select / draw / add text | `V` / `D` / `T` |
-| Undo / redo annotation edits | `Ctrl+Z` / `Ctrl+Shift+Z` or `Ctrl+Y` |
-| Save a copy / print | `Ctrl+S` / `Ctrl+P` |
-| Zoom in / zoom out / reset zoom | `Ctrl++` / `Ctrl+-` / `Ctrl+0` |
-| Toggle sidebar | `Ctrl+\` |
-| Rotate / toggle two-page view | `R` / `2` |
-| First page / last page | `Home` / `End` |
-| Focus mode / leave focus or current tool | `F` / `Esc` |
-| Settings / keyboard help | `Ctrl+,` / `?` |
-
-### Current limits
-
-- Automatic OCR adds a selection layer in the reader. The source PDF stays intact. Document-wide search,
-  signature-label detection, and whole-document AI questions use the PDF’s embedded text.
-- Ask AI uses extracted text, not page images, and includes up to about 400,000 characters of document text. Long
-  documents may be truncated; AI answers can be wrong, so check the cited pages.
-- Folio opens PDFs up to 300 MiB and 10,000 pages. Webpage conversion uses a separate session, so pages behind a
-  login may not load. Desktop URL imports need a direct connection or an HTTP(S) system proxy that accepts
-  numeric-address tunnels. Local-network access requires approval for the requested origin.
-- On upgrading from 1.10.8 or earlier, Recent keeps the stored PDFs and rebuilds their previews when opened.
-  Notes and chat on files up to 2 MiB keep their existing content identity. Larger files had only a partial hash,
-  so Folio keeps those legacy records on disk without attaching them to a potentially different document.
-- Automatic local saving is not cloud sync or a replacement for exporting a PDF copy. Password-protected documents
-  are not saved in Folio between sessions.
-
-## Using Ask AI
-
-Open **Ask AI** with the sparkle button in the toolbar, or select text and choose **Ask AI** in the pop-up toolbar.
-Then pick a provider at the top of the panel:
-
-- **ChatGPT:** click **Continue with ChatGPT** and sign in in your browser. Questions use your ChatGPT plan (Go, Plus,
-  or Pro), and usage counts toward that plan's limits; manage it in
-  [ChatGPT settings](https://chatgpt.com/settings/usage). Sign out, or change the default provider, in Folio's **Settings**.
-- **Claude:** install [Claude Code](https://claude.com/claude-code), run `claude` once in a terminal, and sign in with
-  your Claude account (Pro or Max). Then click **Check again** in Folio. Questions use your Claude subscription.
-
-Ask AI is available in the desktop app only, not the browser version.
-
-## Privacy
-
-Folio requires no Folio account, has no analytics or telemetry, and never uploads your documents on its own. It makes
-network requests only to:
-
-- check GitHub for updates (installed copies; can be turned off in **Settings**),
-- open a link you give it (a webpage is loaded in a hidden, sandboxed window with its own temporary session, so no
-  cookies or sign-ins are shared, and every permission is denied; its scripts run while it loads, as in any browser,
-  and it's then printed to PDF), and
-- answer a question you ask in **Ask AI**. Only then, the document's text (up to about 400,000 characters), any passage
-  you selected, and the conversation go to the provider you chose: OpenAI for ChatGPT, or Anthropic through your
-  installed Claude Code. Their privacy terms apply to that data.
-
-For ChatGPT, Folio stores its sign-in tokens in its data folder (below, under `ai`), encrypted with the system's
-credential protection (Windows data protection, the macOS Keychain, or the Linux secret store; if a Linux desktop has
-no secret store, you sign in again each time Folio starts), and never exposes them to the page. For Claude, Folio runs your own Claude Code with every tool disabled;
-it never sees or stores your Claude credentials. The question's context is written to a temporary file for Claude Code
-and deleted as soon as the answer finishes. Each document's Ask AI conversation is saved with it on this computer (except for password-protected documents) and
-is there when you reopen the document; the **+** button in the panel starts over and deletes it.
-
-Stored locally in your user profile (`%APPDATA%\Folio` on Windows, `~/Library/Application Support/Folio` on macOS,
-`~/.config/Folio` on Linux): recently opened PDFs and their thumbnails (up to 8,
-removable from the home screen with **Clear all**; password-protected PDFs are never kept), highlights, notes, and
-Ask AI conversations for each document (except password-protected ones), reading positions, preferences, and, only if you choose to remember
-it, your signature image. Apart from the ChatGPT sign-in, this data isn't encrypted, so anyone with access to your
-user account can read it.
-
-## Building from source
-
-Requires [Node.js](https://nodejs.org/) 22 or newer.
+Requires Apple's Xcode/Command Line Tools with a Swift compiler, and Python 3. There are no Swift package dependencies or npm packages.
 
 ```sh
-npm install
-npm run app        # build and run the desktop app
-npm run smoke      # end-to-end check: launches the built app and exercises the basics
-npm run dev        # browser version with hot reload at http://localhost:5173
-
-npm run dist:win   # on Windows: release/Folio-Setup.exe and release/Folio-Portable.exe
-npm run dist:mac   # on macOS: release/Folio-mac.dmg (universal: Apple Silicon and Intel)
-npm run dist:linux # on Linux: release/Folio-linux-x86_64.AppImage and release/Folio-linux-amd64.deb
+python3 scripts/fetch-pdfium.py --download
+./scripts/build.sh
+./scripts/test.sh
 ```
 
-Each platform's installers are built on that platform; GitHub Actions builds all three for every release. If your
-terminal has `ELECTRON_RUN_AS_NODE=1` set, unset it first.
+The initial fetch downloads a pinned native PDFium archive, checks its committed SHA-256, rejects unsafe archive paths, and verifies that V8/XFA are disabled. Later builds are offline and re-extract the verified archive. The app is written to `.build/Folio Native.app`; it is not installed or launched automatically. Builds target the current Mac's architecture.
 
-### How it's put together
+Tests run offscreen against synthetic PDFs. They check network denial, actual text replacement/deletion, missing-font-glyph rejection, shared-image replacement isolation, image insertion, clipping rejection, annotation retention, undo/redo, stale-edit rejection, protected PDFs, the reader view, bundle dependencies and sandbox entitlements. They do not replace testing with your own PDFs. Running a sandboxed app inside another restrictive sandbox may require running the tests from a normal Terminal session.
 
-- `src/`: the reader UI (React + TypeScript, built with Vite) on top of [pdf.js](https://github.com/mozilla/pdf.js).
-  `markup.ts` saves and restores highlights and notes, `NotesPanel.tsx` and `Selection.tsx` are their UI, and
-  `AiPanel.tsx` is the Ask AI panel.
-- `electron/`: the desktop shell for Windows, macOS, and Linux. `main.cjs` serves the built app from `dist/` over a
-  custom `app://` protocol with a strict Content Security Policy, runs the page sandboxed with context isolation, opens
-  PDFs from the file manager, keeps a single window, downloads links, and handles updates. `webpage.cjs` converts
-  webpages to PDF. `ai.cjs` runs Ask AI (ChatGPT
-  sign-in and requests, and Claude Code) so credentials never reach the page.
-- `scripts/release.mjs` and `.github/workflows/release-build.yml`: the release pipeline (see
-  [CONTRIBUTING.md](CONTRIBUTING.md#releasing)). `scripts/smoke-test.mjs` is the cross-platform smoke test CI runs.
-  `scripts/screenshots.mjs` retakes the screenshots in this README (`npm run build`, then `node scripts/screenshots.mjs`).
+## Security and privacy
 
-## Contributing
+- The app is signed with **App Sandbox**, allowing user-selected files. It has no incoming/outgoing network, camera, microphone, persistent-bookmark, or automation entitlement. External HTTP(S)/email links require a confirmation and open in another app. Remote-file and document-triggered print actions are not executed automatically.
+- PDFKit handles display. PDFium is linked only into a separate helper process, which inherits the app sandbox, accepts bounded data over pipes, has a 30-second CPU budget and a 45-second parent watchdog, and starts without inherited account credentials. No JavaScript/form engine is initialized. This is process isolation, not an XPC service with a narrower sandbox than the parent.
+- Reading is limited to 300 MiB/10,000 pages. Existing-content editing is limited to 64 MiB; image files to 24 MiB/20 megapixels. Original-font text replacements are read back before accepting a change.
+- Documents and edits stay in memory until you explicitly save. There is no recent-file list, AI account store, automatic document copy, draft autosave or application version archive. Undo snapshots exist in memory while a document is open. macOS, swap, printing and other applications may have their own retention behavior.
+- PDFium is a pinned third-party prebuilt library from [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8125). Hash pinning prevents a changed archive from silently entering a build; it is not independent proof of the binary's source provenance. PDF parser vulnerabilities remain possible. Keep macOS and the pinned library maintained.
 
-Bug reports and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue
-privately, see [SECURITY.md](SECURITY.md).
+### Signing
 
-## License
+Local builds are **ad-hoc signed, not Developer ID-signed or notarized**. Do not treat this as a verified-publisher release. Hardened Runtime is enabled for the UI. In ad-hoc builds the helper retains App Sandbox but omits Hardened Runtime, because macOS library validation requires matching Apple Team IDs for the helper and PDFium dylib. No `disable-library-validation` entitlement is added.
 
-[MIT](LICENSE). Folio includes third-party software under its own licenses; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+With an appropriate installed identity, build with `FOLIO_SIGNING_IDENTITY="Developer ID Application: …" ./scripts/build.sh`. That signs the app, helper and library with the same identity and also enables Hardened Runtime for the helper. Notarization and public release publication are separate maintainer steps; the build does neither automatically. Upstream's release workflows and update channel have been removed.
+
+## Provenance and license
+
+Forked under the upstream MIT license; its copyright notice is retained in [LICENSE](LICENSE). The native implementation preserves the reader/editor intent and adapts the original text-run grouping and verification approach. PDFium's BSD-style and third-party license notices are copied from the pinned distribution into every app bundle. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -1,0 +1,19 @@
+name: Native macOS checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Fetch hash-pinned PDFium without V8
+        run: python3 scripts/fetch-pdfium.py --download
+      - name: Build sandboxed native app
+        run: ./scripts/build.sh
+      - name: Offscreen integration and bundle checks
+        run: ./scripts/test.sh
