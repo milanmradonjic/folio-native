@@ -54,6 +54,31 @@ import Darwin
         let color = bitmap.colorAt(x: Int(x * Double(bitmap.pixelsWide) / 300), y: Int((300 - y) * Double(bitmap.pixelsHigh) / 300))!
         return color.usingColorSpace(.deviceRGB)!
     }
+    private static func checkEditorQueueIsolation(_ source: Data) throws {
+        let finished = DispatchSemaphore(value: 0), succeeded = DispatchSemaphore(value: 0)
+        let callback = DispatchSemaphore(value: 0)
+        DispatchQueue(label: "local.folio.native.editor.regression").async {
+            // Model a delayed PDFKit notification left on a reused worker thread.
+            let timer = Timer(timeInterval: 0.001, repeats: true) { _ in callback.signal() }
+            timer.fireDate = .distantPast
+            RunLoop.current.add(timer, forMode: .default)
+            defer { timer.invalidate(); finished.signal() }
+            do {
+                let targets = try EditorProcess.run(pdf: source, page: 0, operation: "inspect").0.targets ?? []
+                guard let text = targets.first(where: { $0.kind == "text" }) else { return }
+                let deleted = try EditorProcess.run(pdf: source, page: 0, operation: "delete", index: text.index).1
+                guard !deleted.isEmpty else { return }
+                // A helper failure must also finish without servicing the run loop.
+                do {
+                    _ = try EditorProcess.run(pdf: source, page: -1, operation: "inspect")
+                    return
+                } catch { succeeded.signal() }
+            } catch { fputs("Editor queue regression: \(error.localizedDescription)\n", stderr) }
+        }
+        try check(finished.wait(timeout: .now() + 50) == .success, "Background editor must finish without the main run loop")
+        try check(succeeded.wait(timeout: .now()) == .success, "Background inspection, deletion and helper failure must complete")
+        try check(callback.wait(timeout: .now()) == .timedOut, "Editor waits must not deliver delayed callbacks on the worker thread")
+    }
     static func run() throws {
         // A real syscall check complements the static entitlement inspection.
         let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
@@ -71,6 +96,7 @@ import Darwin
         try check(blankPDF.pageCount == 1, "New PDF must contain one valid blank page")
         let source = fixture(), pdf = try DocumentPolicy.parse(source)
         try check(pdf.pageCount == 2 && pdf.string?.contains("Hello world") == true, "Fixture must have readable text and two pages")
+        try checkEditorQueueIsolation(source)
         let targets = try EditorProcess.run(pdf: source, page: 0, operation: "inspect").0.targets ?? []
         guard let text = targets.first(where: { $0.kind == "text" && $0.text == "Hello world" }) else { throw FolioError("Consecutive text fragments were not grouped into an editable line") }
         try check(text.end > text.index, "Fragment grouping must include the complete run")
@@ -170,7 +196,7 @@ import Darwin
         let splits = window.window!.contentView!.subviews.flatMap { $0.subviews }.compactMap { $0 as? NSSplitView }
         try check(splits.allSatisfy { !$0.hasAmbiguousLayout }, "Reader split view must have an unambiguous layout")
         window.window!.close(); file.removeWindowController(window)
-        print("Verified: network denial; real text replacement/deletion; glyph rejection; image insertion and shared-image isolation; clipping rejection; annotation retention; undo/redo; stale edits; protected documents; offscreen reader")
+        print("Verified: network denial; editor worker callback isolation; real text replacement/deletion; glyph rejection; image insertion and shared-image isolation; clipping rejection; annotation retention; undo/redo; stale edits; protected documents; offscreen reader")
     }
 
     static func renderPreview() throws -> Data {

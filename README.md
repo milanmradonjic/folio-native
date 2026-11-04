@@ -33,7 +33,7 @@ python3 scripts/fetch-pdfium.py --download
 
 The initial fetch downloads a pinned native PDFium archive, checks its committed SHA-256, rejects unsafe archive paths, and verifies that V8/XFA are disabled. Later builds are offline and re-extract the verified archive. The app is written to `.build/Folio Native.app`; it is not installed or launched automatically. Builds target the current Mac's architecture.
 
-Tests run offscreen against synthetic PDFs. They check network denial, actual text replacement/deletion, missing-font-glyph rejection, shared-image replacement isolation, image insertion, clipping rejection, annotation retention, undo/redo, stale-edit rejection, protected PDFs, the reader view, bundle dependencies and sandbox entitlements. They do not replace testing with your own PDFs. Running a sandboxed app inside another restrictive sandbox may require running the tests from a normal Terminal session.
+Tests run offscreen against synthetic PDFs. They check network denial, worker waits without delayed-callback delivery, actual text replacement/deletion, missing-font-glyph rejection, shared-image replacement isolation, image insertion, clipping rejection, annotation retention, undo/redo, stale-edit rejection, protected PDFs, the reader view, bundle dependencies and sandbox entitlements. They do not replace testing with your own PDFs. Running a sandboxed app inside another restrictive sandbox may require running the tests from a normal Terminal session.
 
 ## Security and privacy
 

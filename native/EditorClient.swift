@@ -45,6 +45,8 @@ enum EditorProcess {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         try process.run()
         let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + 45, execute: watchdog)
@@ -65,7 +67,11 @@ enum EditorProcess {
             }
             response.append(chunk)
         }
-        process.waitUntilExit()
+        // waitUntilExit() pumps this thread's run loop. PDFKit can leave delayed
+        // page notifications on a reused worker thread; delivering them here
+        // makes PDFThumbnailView update AppKit layout off the main thread.
+        // The termination handler signals independently, without a run loop.
+        exited.wait()
         guard let newline = response.firstIndex(of: 10), newline <= 8 * 1024 * 1024 else {
             throw FolioError("The PDF editor stopped. Your document has not changed.")
         }
